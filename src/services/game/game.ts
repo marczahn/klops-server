@@ -1,5 +1,5 @@
 import v4 from 'uuid/v4'
-import { Block, GameConfig, GameHandle, GameState, Listener, Matrix, Player, Vector } from '../../models/game'
+import { Block, GameConfig, GameHandle, GameState, Listener, Matrix, Vector } from '../../models/game'
 import { cloneDeep } from '../clone'
 import { blockVectorFactory } from './blocks'
 
@@ -32,9 +32,9 @@ interface InternalGameState {
     blockFactory: (zero: Vector) => Block
 }
 
-export const createGameHandle = (): GameHandle => {
+export const createGameHandle = (owner: string): GameHandle => {
     let state: InternalGameState = {
-        state: createGameState(),
+        state: createGameState(owner),
         listeners: [],
         userQueue: [],
         blockFactory: blockVectorFactory(),
@@ -46,53 +46,60 @@ export const createGameHandle = (): GameHandle => {
 
     const handle: GameHandle = {
         getState: () => state.state,
-
         moveLeft: () => {
             state.userQueue.push(LEFT)
-            return handle
         },
         moveRight: () => {
             state.userQueue.push(RIGHT)
-            return handle
         },
         rotate: () => {
             state.userQueue.push(ROTATE)
-            return handle
         },
         start: () => {
             state = start(getState, setState)
-            return handle
+            publish(state, 'started')
         },
         stop: () => {
             state = stop(state)
-            return handle
+            publish(state, 'stopped')
         },
         addListener: (l: Listener) => {
             state.listeners.push(l)
-            return handle
         },
-        addPlayer: (p: Player) => {
+        addPlayer: (p: string) => {
             if (state.state.status !== statusWaiting) {
-                return handle
+                return
             }
-            const exists = state.state.players.reduce((acc: boolean, ep) => acc || ep.name === p.name, false)
-            if (exists) {
-                return handle
+            if (state.state.players[p]) {
+                return
             }
-            state.state.players.push(p)
-            return handle
+            state.state.players[p] = {points: 0}
+            publish(state, 'player_added')
+        },
+        removePlayer: (p: string) => {
+            if (state.state.players[p]) {
+                console.log('PLAYERS BEFORE DELETE', state.state.players)
+                delete state.state.players[p]
+                console.log('PLAYERS AFTER DELETE', state.state.players)
+                publish(state, 'player_removed')
+            }
         },
         configure: (c: GameConfig) => {
+            if (state.state.status !== statusWaiting) {
+                return
+            }
             state.state.cols = c.cols
             state.state.rows = c.rows
             state.state.name = c.name
+            publish(state, 'config_updated')
         }
     }
     return handle
 }
 
-const createGameState = (): GameState => {
+const createGameState = (owner: string): GameState => {
     return {
+        owner,
         cols: 10,
         id: v4(),
         name: 'New Game',
@@ -103,7 +110,7 @@ const createGameState = (): GameState => {
         lineCount: 0,
         stepCount: 0,
         matrix: [],
-        players: [],
+        players: {},
         currentPlayer: '',
     }
 }
@@ -144,7 +151,7 @@ const loop = (getState: getStateFn, setState: setStateFn) => {
 
 const stop = (state: InternalGameState): InternalGameState => {
     clearInterval(state.loopInterval)
-    console.log('Game ended')
+    console.log('Game stopped')
     const out = cloneDeep<InternalGameState>(state)
     out.state = Object.assign(out.state, { status: statusEnded })
     publish(out, statusChanged)
@@ -208,8 +215,8 @@ const initNextBlock = (state: InternalGameState): InternalGameState => {
     return out
 }
 
-const publish = (state: InternalGameState, action: string) => {
-    state.listeners.forEach((l) => l(state.state, action))
+const publish = (state: InternalGameState, event: string) => {
+    state.listeners.forEach((l) => l(state.state, event))
 }
 
 const updateLines = (state: InternalGameState): InternalGameState => {
@@ -229,25 +236,11 @@ const updateLines = (state: InternalGameState): InternalGameState => {
     const out = cloneDeep<InternalGameState>(state)
     out.state.lineCount += foundLines.length
     out.state.level = Math.floor(out.state.lineCount / LEVEL_THRESHOLD)
-    out.state.players[currentPlayerIndex(out.state)].points += calculatePoints(foundLines.length, out.state.level)
+    out.state.players[out.state.currentPlayer].points += calculatePoints(foundLines.length, out.state.level)
     publish(out, linesCompleted)
 
     out.state.matrix = dropLinesFromMatrix(out.state.matrix, foundLines)
     return out
-}
-
-const currentPlayerIndex = (state: GameState): number => {
-    return state.players.reduce(
-        (acc: number, player: Player, i: number) => {
-            if (acc > -1) {
-                return acc
-            }
-            if (player.name === state.currentPlayer) {
-                return i
-            }
-        },
-        -1
-    )
 }
 
 const dropLinesFromMatrix = (matrix: Matrix, foundLines: number[]): number[][] => {

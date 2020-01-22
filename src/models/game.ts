@@ -3,6 +3,7 @@ export type Listener = (state: GameState, event: string) => void
 
 export interface GameState {
     id: string
+    owner: string
     cols: number
     name: string
     rows: number
@@ -12,10 +13,16 @@ export interface GameState {
     nextBlock?: Block
     activeBlock?: Block
     lineCount?: number
-    players: Player[]
+    players: Record<string, PlayerState>
     currentPlayer: string
     level: number
     stepCount: number // is the amount of steps that have been done so far (movements, rotates, etc.)
+}
+
+export interface GameParticipant {
+    id: string
+    name: string
+    points: number
 }
 
 export interface GameHandle {
@@ -26,7 +33,8 @@ export interface GameHandle {
     start: () => void
     stop: () => void
     addListener: (l: Listener) => void
-    addPlayer: (p: Player) => void
+    addPlayer: (p: string) => void
+    removePlayer: (p: string) => void
     configure: (c: GameConfig) => void
 }
 
@@ -43,13 +51,11 @@ export interface Block {
     degrees: number
 }
 
-export interface Player {
-    name: string
+export interface PlayerState {
     points: number
 }
 
 export interface GameConfig {
-    id: string,
     cols: number,
     rows: number,
     name: string
