@@ -114,7 +114,7 @@ wss.on('connection', (ws: WebSocket, req) => {
                 sendParticipants(ws, commandId, gameId)
                 break
             default:
-                respond(ws, commandId, error, null, [`command ${command} for command id ${commandId} not found`])
+                respond(ws, commandId, error, null, [`command ${ command } for command id ${ commandId } not found`])
         }
     }
     ws.onclose = () => {
@@ -123,6 +123,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (!game) {
             return
         }
+        releaseGameSocket(ws)
         game.removePlayer(playerId)
     }
 })
