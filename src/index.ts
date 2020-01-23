@@ -90,10 +90,10 @@ wss.on('connection', (ws: WebSocket, req) => {
                 gameId = enterGame(ws, commandId, playerId, data)
                 break
             case 'cancel_game':
-                cancelGame(playerId, gameId)
+                cancelGame(ws, commandId, playerId, gameId)
                 break
             case 'leave_game':
-                leaveGame(playerId, gameId)
+                leaveGame(ws, commandId, playerId, gameId)
                 break
             case 'change_config':
                 configGame(ws, commandId, playerId, gameId, data)
@@ -113,6 +113,8 @@ wss.on('connection', (ws: WebSocket, req) => {
             case 'send_participants':
                 sendParticipants(ws, commandId, gameId)
                 break
+            default:
+                respond(ws, commandId, error, null, [`command ${command} for command id ${commandId} not found`])
         }
     }
     ws.onclose = () => {
@@ -152,12 +154,9 @@ const enterGame = (ws: WebSocket, commandId: string, playerId: string, data: str
         respond(ws, commandId, error, gameId)
         return
     }
-    // TODO - Remove from other sockets
+
+    releaseGameSocket(ws)
     addGameSocket(gameId, ws)
-    game.addPlayer(playerId)
-    if (!game) {
-        return
-    }
     game.addPlayer(playerId)
     respond(ws, commandId, ok, gameId)
     return gameId
@@ -199,23 +198,28 @@ const signup = (ws: WebSocket, commandId: string, data: string) => {
 
 const parseData = <T>(data: string): T => JSON.parse(data)
 
-const leaveGame = (playerId: string, gameId: string) => {
-    const game = loadGame(gameId)
-    if (game) {
-        game.removePlayer(playerId)
-    }
-}
-
-const cancelGame = (playerId: string, gameId: string) => {
+const leaveGame = (ws: WebSocket, commandId: string, playerId: string, gameId: string) => {
     const game = loadGame(gameId)
     if (!game) {
+        respond(ws, commandId, error, null, ['Game not found'])
         return
     }
+    releaseGameSocket(ws)
     game.removePlayer(playerId)
+    respond(ws, commandId, ok)
+}
+
+const cancelGame = (ws: WebSocket, commandId: string, playerId: string, gameId: string) => {
+    const game = loadGame(gameId)
+    if (!game) {
+        respond(ws, commandId, error, null, ['Game not found'])
+        return
+    }
     if (playerId !== game.getState().owner) {
         return
     }
     game.stop()
+    respond(ws, commandId, ok)
 }
 
 const broadcaseGames = () => {
@@ -257,7 +261,7 @@ const gameListener = (ws: WebSocket, playerId: string): ( (state: GameState, eve
                     delete games[ state.id ]
                 }
                 if (gameSockets[ state.id ]) {
-                    gameSockets[ state.id ].forEach((webSocket: WebSocket) => ws.close())
+                    gameSockets[ state.id ].forEach((webSocket: WebSocket) => releaseGameSocket(webSocket))
                     delete gameSockets[ state.id ]
                 }
                 broadcaseGames()
@@ -292,6 +296,7 @@ const configGame = (ws: WebSocket, commandId: string, playerId: string, gameId: 
     }
     game.configure(config)
     storeGame(game)
+    respond(ws, commandId, ok)
 }
 
 const addressToString = (addr: AddressInfo | string): string => {
@@ -300,7 +305,7 @@ const addressToString = (addr: AddressInfo | string): string => {
 
 // Message format is <event>@<data in json format>
 const broadcast = (bwss: WebSocket.Server, event: string, msg: any) => {
-    listSockets.forEach((client) => client.send(assembleMessage(event, msg)))
+    bwss.clients.forEach((client) => client.send(assembleMessage(event, msg)))
 }
 
 const respond = (ws: WebSocket, commandId: string, status: 'ok' | 'error', data?: any, errors?: string[]) => {
@@ -346,15 +351,10 @@ const addGameSocket = (gameId: string, ws: WebSocket) => {
     gameSockets[ gameId ].push(ws)
 }
 
-const addListSocket = (ws: WebSocket) => {
-    listSockets.push(ws)
-}
-
 const loadGame = (gameId: string): GameHandle | null => {
     return games[ gameId ] || null
 }
 
-const removeSocket = (ws: WebSocket) => {
+const releaseGameSocket = (ws: WebSocket) => {
     Object.values(gameSockets).forEach((game) => game.filter((existingWs) => existingWs !== ws))
-    Object.values(listSockets).filter((existingWs) => existingWs !== ws)
 }
