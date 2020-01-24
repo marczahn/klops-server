@@ -30,6 +30,7 @@ interface InternalGameState {
     loopInterval?: NodeJS.Timeout
     listeners: Listener[]
     blockFactory: (zero: Vector) => Block
+    lastMoveTime: number
 }
 
 export const createGameHandle = (owner: string): GameHandle => {
@@ -38,6 +39,7 @@ export const createGameHandle = (owner: string): GameHandle => {
         listeners: [],
         userQueue: [],
         blockFactory: blockVectorFactory(),
+        lastMoveTime: new Date().getTime()
     }
     const setState = (newState: InternalGameState) => {
         state = newState
@@ -46,6 +48,9 @@ export const createGameHandle = (owner: string): GameHandle => {
 
     const handle: GameHandle = {
         getState: () => state.state,
+        moveDown: () => {
+            state.userQueue.push(DOWN)
+        },
         moveLeft: () => {
             state.userQueue.push(LEFT)
         },
@@ -70,17 +75,15 @@ export const createGameHandle = (owner: string): GameHandle => {
             if (state.state.status !== statusWaiting) {
                 return
             }
-            if (state.state.players[p]) {
+            if (state.state.players[ p ]) {
                 return
             }
-            state.state.players[p] = {points: 0}
+            state.state.players[ p ] = { points: 0 }
             publish(state, 'player_added')
         },
         removePlayer: (p: string) => {
-            if (state.state.players[p]) {
-                console.log('PLAYERS BEFORE DELETE', state.state.players)
-                delete state.state.players[p]
-                console.log('PLAYERS AFTER DELETE', state.state.players)
+            if (state.state.players[ p ]) {
+                delete state.state.players[ p ]
                 publish(state, 'player_removed')
             }
         },
@@ -116,10 +119,12 @@ const createGameState = (owner: string): GameState => {
 }
 
 const start = (getState: getStateFn, setState: setStateFn): InternalGameState => {
-    const li = setInterval(loop, 10, getState, setState)
     const out = cloneDeep<InternalGameState>(getState())
-    out.loopInterval = li
+    out.state.matrix = createMatrix(out.state.cols, out.state.rows)
+    out.loopInterval = setInterval(loop, 10, getState, setState)
     out.state.status = statusRunning
+    out.state.activeBlock = createBlock(out.state.cols, out.blockFactory)
+    out.state.nextBlock = createBlock(out.state.cols, out.blockFactory)
     return out
 }
 
@@ -146,7 +151,13 @@ const loop = (getState: getStateFn, setState: setStateFn) => {
         setState(out)
         return
     }
-    setState(out)
+    // Go on after level dependent delay
+    const now = ( new Date() ).getTime()
+    if (now > out.lastMoveTime + 200) {
+        out.lastMoveTime = now
+        setState(move(out, DOWN))
+        publish(out, looped)
+    }
 }
 
 const stop = (state: InternalGameState): InternalGameState => {
@@ -236,7 +247,7 @@ const updateLines = (state: InternalGameState): InternalGameState => {
     const out = cloneDeep<InternalGameState>(state)
     out.state.lineCount += foundLines.length
     out.state.level = Math.floor(out.state.lineCount / LEVEL_THRESHOLD)
-    out.state.players[out.state.currentPlayer].points += calculatePoints(foundLines.length, out.state.level)
+    out.state.players[ out.state.currentPlayer ].points += calculatePoints(foundLines.length, out.state.level)
     publish(out, linesCompleted)
 
     out.state.matrix = dropLinesFromMatrix(out.state.matrix, foundLines)

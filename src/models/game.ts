@@ -29,6 +29,7 @@ export interface GameHandle {
     getState: () => GameState
     moveLeft: () => void
     moveRight: () => void
+    moveDown: () => void
     rotate: () => void
     start: () => void
     stop: () => void

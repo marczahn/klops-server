@@ -10,7 +10,7 @@ import { AddressInfo, MessageEvent } from 'ws'
 import { GameConfig, GameHandle, GameParticipant, GameState } from './models/game'
 import { names } from './models/names'
 import { error, ok, wsNotFound, wsUnauthorized } from './models/ws'
-import { createGameHandle } from './services/game/game'
+import { createGameHandle, looped } from './services/game/game'
 
 interface DisassembledMessage {
     command: string
@@ -66,6 +66,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         return
     }
     const playerId = params.player.toString()
+
     ws.onmessage = (e: MessageEvent) => {
         let command: string
         let commandId: string = '00000000-0000-0000-0000-000000000000'
@@ -85,6 +86,21 @@ wss.on('connection', (ws: WebSocket, req) => {
         switch (command) {
             case 'create_game':
                 createGame(ws, commandId, playerId)
+                break
+            case 'move_left':
+                handleInput(playerId, gameId, 'left')
+                break
+            case 'move_right':
+                handleInput(playerId, gameId, 'right')
+                break
+            case 'move_down':
+                handleInput(playerId, gameId, 'down')
+                break
+            case 'rotate':
+                handleInput(playerId, gameId, 'rotate')
+                break
+            case 'start_game':
+                startGame(ws, commandId, playerId, gameId)
                 break
             case 'enter_game':
                 gameId = enterGame(ws, commandId, playerId, data)
@@ -143,6 +159,31 @@ const sendParticipants = (ws: WebSocket, commandId: string, gameId: string) => {
     } catch (e) {
         broadcastToGame(gameId, 'game_not_found', gameId)
         return
+    }
+}
+
+const handleInput = (playerId: string, gameId: string, dir: string) => {
+    const game = loadGame(gameId)
+    if (!game) {
+        console.log('Game not found')
+        return
+    }
+    if (game.getState().currentPlayer !== playerId) {
+        console.log(`It is not play ${playerId}'s turn`)
+    }
+    switch (dir) {
+        case 'left':
+            game.moveLeft()
+            break
+        case 'right':
+            game.moveRight()
+            break
+        case 'down':
+            game.moveDown()
+            break
+        case 'rotate':
+            game.rotate()
+            break
     }
 }
 
@@ -223,6 +264,19 @@ const cancelGame = (ws: WebSocket, commandId: string, playerId: string, gameId: 
     respond(ws, commandId, ok)
 }
 
+const startGame = (ws: WebSocket, commandId: string, playerId: string, gameId: string) => {
+    const game = loadGame(gameId)
+    if (!game) {
+        respond(ws, commandId, error, null, ['Game not found'])
+        return
+    }
+    if (playerId !== game.getState().owner) {
+        return
+    }
+    game.start()
+    respond(ws, commandId, ok)
+}
+
 const broadcaseGames = () => {
     broadcast(wss, 'games_list', Object.values(games).map((g) => g.getState()))
 }
@@ -266,6 +320,13 @@ const gameListener = (ws: WebSocket, playerId: string): ( (state: GameState, eve
                     delete gameSockets[ state.id ]
                 }
                 broadcaseGames()
+                break
+            case 'started':
+                broadcastToGame(state.id, 'game_started', state)
+                broadcaseGames()
+                break
+            case looped:
+                broadcastToGame(state.id, 'game_looped', state)
                 break
         }
     }

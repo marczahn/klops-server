@@ -46,8 +46,9 @@ export const blockVectorFactory = () => {
         if (bucket.length === 0) {
             bucket = generateBucket(blockVectors)
         }
+        console.log(bucket)
         const k: number | undefined = bucket.pop()
-        if (!k) {
+        if (k === undefined) {
             // T Typescript transpiler does not realize that it is impossible that bucket cannot be empty at this place
             throw Error('No elements in bucket left')
         }
